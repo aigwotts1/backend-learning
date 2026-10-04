@@ -58,3 +58,13 @@ When these make sense, say **“I learned milestone 1”**. We will build the ne
 | 8 | Improve operational quality | Logs, metrics, security basics, CI |
 
 Future milestones are a plan; their code will be added only as you reach them. We will keep the same Task Tracker domain throughout.
+
+## GitHub Actions tests
+
+`.github/workflows/ci.yml` runs automatically on every push and pull request. You can also run it from the GitHub Actions tab using **Run workflow**.
+
+The runner checks out the code, installs Java 17, caches Maven dependencies, and runs `mvn --batch-mode --no-transfer-progress clean verify`. This compiles the application, runs the tests, and packages the JAR. A failed test makes the workflow fail. No secrets or database are needed for the current tests.
+
+After pushing this workflow, open the repository's **Actions** tab and select **Java CI**, then **Build and test**, to inspect the results. This is continuous integration (CI). When deployment is added, its job should depend on `test` with `needs: test`, so deployment only runs after the checks pass.
+
+To require passing tests before merging, configure a branch rule for `main` under **Settings > Rules > Rulesets**, requiring pull requests and the **Build and test** status check. The check must run first to appear in the selector; rule availability depends on the repository and GitHub plan. Direct pushes are still possible until an applicable rule is configured.
