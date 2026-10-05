@@ -1,26 +1,32 @@
 package com.aigwotts1.tasktracker.task;
 
-import java.util.Comparator;
 import java.util.List;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicLong;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class TaskService {
-    // Milestone 1: temporary storage. Restarting the app clears these tasks.
-    private final ConcurrentHashMap<Long, Task> tasks = new ConcurrentHashMap<>();
-    private final AtomicLong nextId = new AtomicLong();
+    private final TaskRepository repository;
 
-    public Task create(String title) {
-        Task task = new Task(nextId.incrementAndGet(), title.strip(), false);
-        tasks.put(task.id(), task);
-        return task;
+    public TaskService(TaskRepository repository) {
+        this.repository = repository;
     }
 
+    @Transactional
+    public Task create(String title) {
+        TaskEntity entity = repository.save(new TaskEntity(title.strip()));
+        return toTask(entity);
+    }
+
+    @Transactional(readOnly = true)
     public List<Task> findAll() {
-        return tasks.values().stream()
-                .sorted(Comparator.comparingLong(Task::id))
+        return repository.findAll(Sort.by("id")).stream()
+                .map(this::toTask)
                 .toList();
+    }
+
+    private Task toTask(TaskEntity entity) {
+        return new Task(entity.getId(), entity.getTitle(), entity.isCompleted());
     }
 }
