@@ -6,7 +6,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 @SpringBootApplication
 public class TaskTrackerApplication {
     public static void main(String[] args) {
-        // Main file of Spring Boot Project From here the application will start running
+        // Main file of Spring Boot Project from here the application will start running
         SpringApplication.run(TaskTrackerApplication.class, args);
     }
 }
