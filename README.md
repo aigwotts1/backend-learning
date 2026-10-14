@@ -60,6 +60,25 @@ Wait until the database is ready (`docker logs task-tracker-test`) before runnin
 
 The API tests roll back their changes. The persistence test commits a row, reads it in a new transaction, and deletes its own row afterward. IDs can have gaps after rollbacks; they are identifiers, not row counts.
 
+## Package structure
+
+Code is grouped by feature (`task`), then by responsibility:
+
+```text
+com.aigwotts1.tasktracker
+|-- TaskTrackerApplication.java
+`-- task
+    |-- controller/TaskController.java
+    |-- service/TaskService.java
+    |-- repository/TaskRepository.java
+    |-- entity/TaskEntity.java
+    `-- dto
+        |-- CreateTaskRequest.java
+        `-- Task.java
+```
+
+Controllers handle HTTP, services coordinate business logic and transactions, repositories access the database, entities map database rows, and DTOs carry API request/response data. Keep future features alongside `task` with their own folders. The application class remains above these packages so Spring discovers them automatically.
+
 ## Understand milestone 2
 
 Read in this order:

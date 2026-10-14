@@ -1,4 +1,6 @@
-package com.aigwotts1.tasktracker.task;
+package com.aigwotts1.tasktracker.task.entity;
+
+
 
 import jakarta.persistence.*;
 

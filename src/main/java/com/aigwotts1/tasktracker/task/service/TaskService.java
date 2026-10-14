@@ -1,4 +1,9 @@
-package com.aigwotts1.tasktracker.task;
+package com.aigwotts1.tasktracker.task.service;
+
+import com.aigwotts1.tasktracker.task.dto.Task;
+import com.aigwotts1.tasktracker.task.entity.TaskEntity;
+import com.aigwotts1.tasktracker.task.repository.TaskRepository;
+
 
 import java.util.List;
 import org.springframework.data.domain.Sort;

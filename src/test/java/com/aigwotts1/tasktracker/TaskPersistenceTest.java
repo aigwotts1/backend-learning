@@ -1,8 +1,8 @@
 package com.aigwotts1.tasktracker;
 
-import com.aigwotts1.tasktracker.task.Task;
-import com.aigwotts1.tasktracker.task.TaskService;
-import com.aigwotts1.tasktracker.task.TaskRepository;
+import com.aigwotts1.tasktracker.task.dto.Task;
+import com.aigwotts1.tasktracker.task.service.TaskService;
+import com.aigwotts1.tasktracker.task.repository.TaskRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;

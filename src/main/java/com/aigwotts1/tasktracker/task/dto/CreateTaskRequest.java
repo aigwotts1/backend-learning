@@ -1,4 +1,6 @@
-package com.aigwotts1.tasktracker.task;
+package com.aigwotts1.tasktracker.task.dto;
+
+
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;

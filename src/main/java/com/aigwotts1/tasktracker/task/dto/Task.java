@@ -1,4 +1,6 @@
-package com.aigwotts1.tasktracker.task;
+package com.aigwotts1.tasktracker.task.dto;
+
+
 
 
 /*Java Records, finalized in Java 16 via JEP 395,

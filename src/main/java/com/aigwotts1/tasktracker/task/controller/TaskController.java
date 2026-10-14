@@ -1,4 +1,9 @@
-package com.aigwotts1.tasktracker.task;
+package com.aigwotts1.tasktracker.task.controller;
+
+import com.aigwotts1.tasktracker.task.dto.CreateTaskRequest;
+import com.aigwotts1.tasktracker.task.dto.Task;
+import com.aigwotts1.tasktracker.task.service.TaskService;
+
 
 import jakarta.validation.Valid;
 import java.util.List;
