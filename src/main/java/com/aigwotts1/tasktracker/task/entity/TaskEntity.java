@@ -1,9 +1,12 @@
 package com.aigwotts1.tasktracker.task.entity;
 
-
-
 import jakarta.persistence.*;
+import lombok.AccessLevel;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
 
+@Getter
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
 @Entity
 @Table(name = "tasks")
 public class TaskEntity {
@@ -17,16 +20,8 @@ public class TaskEntity {
     @Column(nullable = false)
     private boolean completed;
 
-    protected TaskEntity() {
-        // JPA needs a no-argument constructor to load rows.
-    }
-
     public TaskEntity(String title) {
         this.title = title;
         this.completed = false;
     }
-
-    public Long getId() { return id; }
-    public String getTitle() { return title; }
-    public boolean isCompleted() { return completed; }
 }
