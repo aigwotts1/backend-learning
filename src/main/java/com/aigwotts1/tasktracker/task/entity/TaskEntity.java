@@ -11,7 +11,12 @@ import lombok.NoArgsConstructor;
 @Table(name = "tasks")
 public class TaskEntity {
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
+     @GeneratedValue(strategy = GenerationType.IDENTITY)
+//     Strategy	Description
+// IDENTITY	Database generates ID on insert
+// SEQUENCE	Uses a database sequence
+// TABLE	Uses a table to allocate identifiers
+// AUTO	Provider chooses a strategy
     private Long id;
 
     @Column(nullable = false, length = 120)
