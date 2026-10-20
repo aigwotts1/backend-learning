@@ -11,6 +11,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
+// service with normal methods 
 public class TaskService {
     private final TaskRepository repository;
 
