@@ -1,6 +1,6 @@
 # Task Tracker - backend learning
 
-Current milestone: **2 - PostgreSQL persistence**. The same create/list APIs now store tasks in PostgreSQL, so restarting the application keeps your data.
+Current milestone: **3 - Full CRUD and error handling**. Tasks are stored in PostgreSQL. You can now fetch, update, complete, and delete them, with consistent HTTP error responses.
 
 ## Local database setup
 
@@ -58,7 +58,7 @@ mvn --batch-mode --no-transfer-progress clean verify
 
 Wait until the database is ready (`docker logs task-tracker-test`) before running tests. Afterward, stop the container with `docker stop task-tracker-test`; start it again with `docker start task-tracker-test`. We will study Docker properly in milestone 4.
 
-The API tests roll back their changes. The persistence test commits a row, reads it in a new transaction, and deletes its own row afterward. IDs can have gaps after rollbacks; they are identifiers, not row counts.
+The API tests roll back their changes. The persistence tests commit rows, check reads and updates in separate transactions, and clean up their own rows afterward. IDs can have gaps after rollbacks; they are identifiers, not row counts.
 
 ## Package structure
 
@@ -67,13 +67,16 @@ Code is grouped by feature (`task`), then by responsibility:
 ```text
 com.aigwotts1.tasktracker
 |-- TaskTrackerApplication.java
+|-- common/exception/ApiExceptionHandler.java
 `-- task
     |-- controller/TaskController.java
     |-- service/TaskService.java
     |-- repository/TaskRepository.java
     |-- entity/TaskEntity.java
+    |-- exception/TaskNotFoundException.java
     `-- dto
         |-- CreateTaskRequest.java
+        |-- UpdateTaskRequest.java
         `-- Task.java
 ```
 
@@ -106,7 +109,64 @@ POST `/api/tasks` still returns HTTP 201 with `id`, `title`, and `completed`. GE
 - Trace how `repository.save` causes an INSERT without handwritten Java SQL.
 - Explain why tests use their own database and why rollback can leave gaps in IDs.
 
-When ready, say **"I learned milestone 2"**. Next we will add get, update, complete, and delete APIs with error handling.
+Milestone 2 introduced persistence. Continue below for the current milestone.
+
+## Milestone 3: CRUD and error handling
+
+| Method | Endpoint | Body | Successful response |
+| --- | --- | --- | --- |
+| POST | `/api/tasks` | `{"title":"Learn CRUD"}` | 201 + task, with its URL in `Location` |
+| GET | `/api/tasks` | none | 200 + tasks ordered by ID |
+| GET | `/api/tasks/{id}` | none | 200 + task |
+| PUT | `/api/tasks/{id}` | `{"title":"New title","completed":false}` | 200 + updated task |
+| PATCH | `/api/tasks/{id}/complete` | none | 200 + completed task |
+| DELETE | `/api/tasks/{id}` | none | 204 with no body |
+
+PUT requires **both** fields; `completed` uses `Boolean` rather than `boolean` in the request record so a missing value can fail `@NotNull` validation. You can reopen a task by sending `completed: false`. PATCH complete changes only completion; repeating it leaves the task complete. A missing task returns 404 for all operations by ID, including deleting it again. Titles must be nonblank and at most 120 characters before trimming.
+
+With the application running, use these PowerShell commands:
+
+```powershell
+$task = Invoke-RestMethod -Method Post -Uri http://localhost:8080/api/tasks -ContentType 'application/json' -Body '{"title":"Learn CRUD"}'
+$taskId = $task.id
+Invoke-RestMethod -Uri "http://localhost:8080/api/tasks/$taskId"
+Invoke-RestMethod -Method Put -Uri "http://localhost:8080/api/tasks/$taskId" -ContentType 'application/json' -Body '{"title":"Understand transactions","completed":false}'
+Invoke-RestMethod -Method Patch -Uri "http://localhost:8080/api/tasks/$taskId/complete"
+Invoke-RestMethod -Method Delete -Uri "http://localhost:8080/api/tasks/$taskId"
+```
+
+To inspect an error body, run `curl.exe -i http://localhost:8080/api/tasks/9223372036854775807`. It returns `application/problem+json`, for example:
+
+```json
+{
+  "type": "about:blank",
+  "title": "Not Found",
+  "status": 404,
+  "detail": "Task with ID 9223372036854775807 was not found.",
+  "instance": "/api/tasks/9223372036854775807"
+}
+```
+
+Validation errors return 400 and add an `errors` object such as `{"title":"must not be blank"}`. Malformed JSON and nonnumeric IDs also return 400. `ApiExceptionHandler` extends Spring's `ResponseEntityExceptionHandler`, which supplies standard Problem Detail responses for Spring MVC errors. `@RestControllerAdvice` centralizes that handling so controllers stay focused on HTTP operations. `TaskNotFoundException` communicates a missing task from the service to the handler.
+
+### Transactions and updates
+
+The service loads an entity inside `@Transactional`. That entity is managed by Hibernate. Calling `setTitle` or `setCompleted` changes it in memory; Hibernate detects the change and writes an UPDATE when the transaction commits (dirty checking). A second `repository.save` is unnecessary for this managed entity. Exceptions roll back the transaction. Fetching first also ensures update and delete return 404 for missing tasks.
+
+Lombok generates getters, the protected JPA constructor, and setters only for editable fields. The ID has no setter. Existing table columns already support these operations, so there is no new migration and V1 stays unchanged.
+
+### Practice before continuing
+
+- Create a task and run the entire PowerShell sequence above.
+- Observe the `Location` header on POST and the empty body on DELETE.
+- Call complete twice, then reopen the task using PUT.
+- Leave `completed` out of PUT and inspect the 400 response.
+- Request a deleted task and inspect the 404 response.
+- Update a task, restart the app, and check that the change survives.
+- Explain why updates persist without an explicit `save` call.
+- Run the tests using the test database configuration above. MockMvc uses real Spring components and PostgreSQL, while avoiding a network server. Persistence tests separately verify committed changes.
+
+When ready, say **"I learned milestone 3"**. Next we will containerize the app and database with Docker Compose.
 
 ## GitHub Actions
 
@@ -119,8 +179,8 @@ Once these changes are pushed, inspect **Actions > Java CI > Build and test**. F
 | Milestone | What we add |
 | --- | --- |
 | 1 (completed) | Java records, HTTP, JSON, injection, validation, create/list APIs |
-| 2 (current) | PostgreSQL, JPA entities, repositories, Flyway, database tests |
-| 3 | Full CRUD, error handling, transaction behavior |
+| 2 (completed) | PostgreSQL, JPA entities, repositories, Flyway, database tests |
+| 3 (current) | Full CRUD, error handling, transaction behavior |
 | 4 | Dockerfile, Compose, networks, volumes |
 | 5 | Notification microservice and HTTP communication |
 | 6 | Kafka task events, retries, duplicate handling |
