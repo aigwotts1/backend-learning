@@ -32,4 +32,26 @@ class TaskPersistenceTest {
             repository.deleteById(saved.id());
         }
     }
+
+    @Test
+    void commitsUpdatesCompletionAndDeletion() {
+        Task saved = service.create("Original title");
+        try {
+            // Each service call opens and commits its own transaction.
+            service.update(saved.id(), " Updated title ", true);
+            Task updated = service.findById(saved.id());
+            assertThat(updated.title()).isEqualTo("Updated title");
+            assertThat(updated.completed()).isTrue();
+
+            service.update(saved.id(), "Updated title", false);
+            assertThat(service.findById(saved.id()).completed()).isFalse();
+            service.complete(saved.id());
+            assertThat(service.findById(saved.id()).completed()).isTrue();
+
+            service.delete(saved.id());
+            assertThat(repository.findById(saved.id())).isEmpty();
+        } finally {
+            repository.deleteById(saved.id());
+        }
+    }
 }
