@@ -3,10 +3,10 @@ package com.aigwotts1.tasktracker.task.entity;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Getter;
+import lombok.Setter;
 import lombok.NoArgsConstructor;
 
 @Getter
-@Setter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 @Entity
 @Table(name = "tasks")
@@ -21,9 +21,11 @@ public class TaskEntity {
     private Long id;
 
     @Column(nullable = false, length = 120)
+    @Setter
     private String title;
 
     @Column(nullable = false)
+    @Setter
     private boolean completed;
 
     public TaskEntity(String title) {
