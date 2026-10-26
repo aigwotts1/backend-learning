@@ -2,6 +2,8 @@ package com.aigwotts1.tasktracker.task.controller;
 
 import com.aigwotts1.tasktracker.task.dto.CreateTaskRequest;
 import com.aigwotts1.tasktracker.task.dto.Task;
+import com.aigwotts1.tasktracker.task.dto.UpdateTaskRequest;
+import java.net.URI;
 import com.aigwotts1.tasktracker.task.service.TaskService;
 
 
@@ -27,7 +29,28 @@ public class TaskController {
 
     @PostMapping
     public ResponseEntity<Task> create(@Valid @RequestBody CreateTaskRequest request) {
-        return ResponseEntity.status(201).body(taskService.create(request.title()));
+        Task task = taskService.create(request.title());
+        return ResponseEntity.created(URI.create("/api/tasks/" + task.id())).body(task);
+    }
+
+    @GetMapping("/{id}")
+    public Task getById(@PathVariable long id) {
+        return taskService.findById(id);
+    }
+
+    @PutMapping("/{id}")
+    public Task update(@PathVariable long id, @Valid @RequestBody UpdateTaskRequest request) {
+        return taskService.update(id, request.title(), request.completed());
+    }
+
+    @PatchMapping("/{id}/complete")
+    public Task complete(@PathVariable long id) {
+        return taskService.complete(id);
+    }
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> delete(@PathVariable long id) {
+        taskService.delete(id);
+        return ResponseEntity.noContent().build();
     }
 }
-
