@@ -19,8 +19,7 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
 @RestControllerAdvice
 public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(TaskNotFoundException.class)
-    public ResponseEntity<ProblemDetail> handleTaskNotFound(
-            TaskNotFoundException exception, ServletWebRequest request) {
+    public ResponseEntity<ProblemDetail> handleTaskNotFound(TaskNotFoundException exception, ServletWebRequest request) {
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(
                 HttpStatus.NOT_FOUND, exception.getMessage());
         problem.setInstance(URI.create(request.getRequest().getRequestURI()));
@@ -29,8 +28,10 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 
     @Override
     protected ResponseEntity<Object> handleMethodArgumentNotValid(
-            MethodArgumentNotValidException exception, HttpHeaders headers,
-            HttpStatusCode status, WebRequest request) {
+            MethodArgumentNotValidException exception,
+            HttpHeaders headers,
+            HttpStatusCode status,
+            WebRequest request) {
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(
                 status, "Check the request fields and try again.");
         Map<String, String> errors = new TreeMap<>();
