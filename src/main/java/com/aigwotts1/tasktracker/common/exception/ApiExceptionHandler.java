@@ -17,6 +17,7 @@ import org.springframework.web.context.request.ServletWebRequest;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
 @RestControllerAdvice
+//exception handler for the whole application, not just a single controller
 public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(TaskNotFoundException.class)
     public ResponseEntity<ProblemDetail> handleTaskNotFound(TaskNotFoundException exception, ServletWebRequest request) {
