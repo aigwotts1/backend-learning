@@ -1,8 +1,92 @@
 # Task Tracker - backend learning
 
-Current milestone: **3 - Full CRUD and error handling**. Tasks are stored in PostgreSQL. You can now fetch, update, complete, and delete them, with consistent HTTP error responses.
+Current milestone: **4 - Docker and Compose**. Run the complete Task Tracker and PostgreSQL together using Docker. The CRUD APIs from milestone 3 are unchanged.
 
-## Local database setup
+## Start with Docker Compose (milestone 4)
+
+Requires Docker Desktop running in **Linux containers** mode with Docker Compose v2. Docker builds the Java app, so this path does not require Java, Maven, or PostgreSQL installed on your host.
+
+From the repository folder in PowerShell:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+Do this copy only once. Edit `.env` to choose `DOCKER_DB_PASSWORD`, then start:
+
+```powershell
+docker compose up --build -d
+docker compose ps
+docker compose logs -f app
+```
+
+The first build downloads base images and Maven dependencies. Wait for the application log to say `Started TaskTrackerApplication`, then press Ctrl+C to stop following logs (the containers keep running). Open `http://127.0.0.1:8080/api/tasks`, or use:
+
+```powershell
+$task = Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8080/api/tasks -ContentType 'application/json' -Body '{"title":"Learn Docker Compose"}'
+Invoke-RestMethod -Uri http://127.0.0.1:8080/api/tasks
+```
+
+If port 8080 is occupied, set `APP_PORT=8081` in `.env` and use `http://127.0.0.1:8081` in your API commands. The app still listens on port 8080 inside its container. Shell environment variables override `.env` values, so check `$env:APP_PORT` if a port change is not taking effect.
+
+Compose reads `.env` to substitute values into `compose.yaml`. It passes the resulting database settings into the app container. This differs from running Spring Boot directly, which does not automatically read `.env`. The real `.env` is ignored by Git and excluded from the Docker build context; `.env.example` is the committed template. These settings are for local learning.
+
+### What each file does
+
+| File or concept | Purpose |
+| --- | --- |
+| `Dockerfile` build stage | Uses Maven and Java 17 to compile and package the app inside Docker |
+| `Dockerfile` runtime stage | Copies only the JAR into a Java 17 JRE image and runs as user 10001 |
+| `.dockerignore` | Excludes Git files, local secrets, logs, tests, and build outputs from the build context |
+| `compose.yaml` | Defines the app, database, connection settings, startup dependency, and storage |
+| Image | A reusable template built from the Dockerfile |
+| Container | A running instance of an image |
+| Compose network | Lets the app find PostgreSQL by its service name `db` |
+| Named volume | Stores PostgreSQL files independently of the database container |
+
+`DB_URL=jdbc:postgresql://db:5432/task_tracker` uses **db**, not localhost. Inside the app container, localhost refers to the app container itself. Compose creates a network where `db` resolves to PostgreSQL. The database is not published to a host port, so it can coexist with your installed PostgreSQL server. Only the app port is published, bound to your local machine.
+
+The database health check uses `pg_isready`. `depends_on: condition: service_healthy` waits for it before starting the app. This is startup ordering, not automatic recovery from every future database outage. Flyway creates or checks the schema when the app starts.
+
+The Docker build skips database tests because it has no running database. GitHub Actions runs the full PostgreSQL tests first, then builds the image. A successful image build alone does not prove tests passed. The multi-stage runtime has no Maven, source files, or test credentials, and Java runs with UTC as in earlier milestones.
+
+### Stop, restart, and retain data
+
+```powershell
+# Restart only the app; tasks stay in the database.
+docker compose restart app
+
+# Remove containers and the network; retain the named database volume.
+docker compose down
+
+# Recreate containers using the same data.
+docker compose up -d
+```
+
+Create a task, run `down`, then `up -d`, wait for startup, and list tasks again. The task should survive. The Compose database starts empty and is separate from the native PostgreSQL database used in earlier milestones; this setup does not move existing tasks between them.
+
+To inspect SQL inside the database container:
+
+```powershell
+docker compose exec db psql -U task_tracker -d task_tracker -c "SELECT * FROM tasks ORDER BY id;"
+```
+
+After Java code changes, run `docker compose up --build -d`; a plain restart does not rebuild the image. The password initializes PostgreSQL only when the volume is empty. Editing it later in `.env` does not change the existing database user's password; change that password in PostgreSQL as well if you need to rotate it.
+
+For an intentional fresh start, `docker compose down --volumes` deletes this stack's stored database data. Use normal `down` when you want to keep tasks. Keep the Compose project name and folder stable so Compose reuses the same volume.
+
+### Practice before continuing
+
+- Explain image versus container, and why the final image needs Java but not Maven.
+- Create a task, recreate the containers with `down` and `up -d`, and verify it survives.
+- Change `APP_PORT` and explain host port versus container port.
+- Explain why the database URL uses `db` instead of `localhost`.
+- Inspect `docker compose ps`, `logs app`, and the SQL query above.
+- Explain why a Docker build skips database tests while CI runs them first.
+
+When ready, say **"I learned milestone 4"**. Next we will introduce a small notification microservice and HTTP communication.
+
+## Native setup (without Docker)
 
 Requires Java 17, Maven, and PostgreSQL 15 or 16. PostgreSQL 15 is already installed on this machine. Open **SQL Shell (psql)** from the Windows Start menu, connect as your PostgreSQL administrator, and run these statements once:
 
@@ -56,7 +140,7 @@ $env:TEST_DB_PASSWORD = 'local_test_password'
 mvn --batch-mode --no-transfer-progress clean verify
 ```
 
-Wait until the database is ready (`docker logs task-tracker-test`) before running tests. Afterward, stop the container with `docker stop task-tracker-test`; start it again with `docker start task-tracker-test`. We will study Docker properly in milestone 4.
+Wait until the database is ready (`docker logs task-tracker-test`) before running tests. Afterward, stop the container with `docker stop task-tracker-test`; start it again with `docker start task-tracker-test`. The Docker Compose guide above covers the complete application stack.
 
 The API tests roll back their changes. The persistence tests commit rows, check reads and updates in separate transactions, and clean up their own rows afterward. IDs can have gaps after rollbacks; they are identifiers, not row counts.
 
@@ -166,11 +250,11 @@ Lombok generates getters, the protected JPA constructor, and setters only for ed
 - Explain why updates persist without an explicit `save` call.
 - Run the tests using the test database configuration above. MockMvc uses real Spring components and PostgreSQL, while avoiding a network server. Persistence tests separately verify committed changes.
 
-When ready, say **"I learned milestone 3"**. Next we will containerize the app and database with Docker Compose.
+Milestone 4 now packages this same application with Docker; see the guide at the top.
 
 ## GitHub Actions
 
-`.github/workflows/ci.yml` runs on pushes, pull requests, and manual dispatch. It starts a fresh PostgreSQL 16 service, waits for its health check, sets Java 17, and runs `mvn clean verify`. The password in that workflow is only for its temporary test database. No external database credentials are needed.
+`.github/workflows/ci.yml` runs on pushes, pull requests, and manual dispatch. It starts a fresh PostgreSQL 16 service, waits for its health check, sets Java 17, and runs `mvn clean verify`. After tests pass, it builds the Docker image; it does not publish the image or deploy the app. The password in that workflow is only for its temporary test database. No external database credentials are needed.
 
 Once these changes are pushed, inspect **Actions > Java CI > Build and test**. Future deployment should depend on the test job with `needs: test`. To require passing tests before merging, configure a rule for `main` requiring pull requests and the **Build and test** status check; availability depends on your GitHub plan and repository.
 
@@ -180,8 +264,8 @@ Once these changes are pushed, inspect **Actions > Java CI > Build and test**. F
 | --- | --- |
 | 1 (completed) | Java records, HTTP, JSON, injection, validation, create/list APIs |
 | 2 (completed) | PostgreSQL, JPA entities, repositories, Flyway, database tests |
-| 3 (current) | Full CRUD, error handling, transaction behavior |
-| 4 | Dockerfile, Compose, networks, volumes |
+| 3 (completed) | Full CRUD, error handling, transaction behavior |
+| 4 (current) | Dockerfile, Compose, networks, volumes |
 | 5 | Notification microservice and HTTP communication |
 | 6 | Kafka task events, retries, duplicate handling |
 | 7 | Local Kubernetes deployment, probes, configuration, scaling |
