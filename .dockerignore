@@ -1,0 +1,13 @@
+.git
+.github
+.codex
+.agents
+.aws
+target
+src/test
+.env
+.env.*
+*.log
+.idea
+.vscode
+*.iml
