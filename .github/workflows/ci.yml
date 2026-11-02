@@ -42,3 +42,6 @@ jobs:
 
       - name: Build and run tests
         run: mvn --batch-mode --no-transfer-progress clean verify
+
+      - name: Build Docker image
+        run: docker build --tag task-tracker:ci .
