@@ -1,33 +1,69 @@
+# Project name: Compose uses it to group and name this stack's resources.
+# You can override it with docker compose -p another-name ...
 name: task-tracker
 
+# Each service runs in its own container.
+# Compose also creates a default network where services can find each other by name.
 services:
+  # PostgreSQL database service, reachable as "db" on the Compose network.
   db:
+    # Download the official PostgreSQL 16 image; no database Dockerfile is needed.
     image: postgres:16
+
+    # These variables initialize the database when its data directory is empty.
+    # Changing them later does not change credentials in an existing database volume.
     environment:
       POSTGRES_DB: task_tracker
       POSTGRES_USER: task_tracker
+      # Read the password from .env or your shell. Stop with an error if unset or empty.
       POSTGRES_PASSWORD: ${DOCKER_DB_PASSWORD:?Set DOCKER_DB_PASSWORD in .env or your shell}
+
+    # Store PostgreSQL files in a named volume, outside the container's writable layer.
+    # Normal docker compose down keeps this data; down --volumes deletes it.
     volumes:
       - postgres-data:/var/lib/postgresql/data
+
+    # Check whether PostgreSQL is accepting connections before starting the app.
+    # pg_isready checks server readiness, not application schema or password validity.
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U task_tracker -d task_tracker"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-      start_period: 10s
+      interval: 5s       # Run the check every 5 seconds.
+      timeout: 5s        # Allow up to 5 seconds for an individual check.
+      retries: 10        # Mark unhealthy after 10 consecutive counted failures.
+      start_period: 10s  # Ignore startup failures during this initial grace period.
 
+    # No host port is published for PostgreSQL. The app connects over the internal network.
+
+  # Spring Boot application service.
   app:
+    # Build an image using the Dockerfile in the current directory (the build context).
     build: .
+
+    # Format: host IP : host port : container port.
+    # Bind locally; APP_PORT comes from .env or your shell and defaults to 8080.
+    # For APP_PORT=8081, visit http://127.0.0.1:8081; Java still listens on 8080 inside.
     ports:
       - "127.0.0.1:${APP_PORT:-8080}:8080"
+
+    # Pass these values into the app container at runtime.
+    # application.properties reads them to configure Spring's database connection.
     environment:
+      # "db" is the database service name. localhost here would mean the app container.
       DB_URL: jdbc:postgresql://db:5432/task_tracker
       DB_USERNAME: task_tracker
+      # Use the same password used to initialize PostgreSQL above.
       DB_PASSWORD: ${DOCKER_DB_PASSWORD:?Set DOCKER_DB_PASSWORD in .env or your shell}
+
+    # Wait for the database health check to pass before starting this service.
+    # This controls startup order; it does not restart the app on later database failures.
     depends_on:
       db:
         condition: service_healthy
+
+    # Use a small init process to forward signals and reap orphaned child processes.
     init: true
 
+# Declare the named volume used by the database service.
+# Compose normally prefixes its actual name with the project name.
 volumes:
   postgres-data:
