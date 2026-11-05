@@ -1,6 +1,6 @@
 # Task Tracker - backend learning
 
-Current milestone: **4 - Docker and Compose**. Run the complete Task Tracker and PostgreSQL together using Docker. The CRUD APIs from milestone 3 are unchanged.
+Current milestone: **5 - Microservices over HTTP**. Task Tracker now calls a separate notification service after a task completion commits. Compose runs both Java services and PostgreSQL.
 
 ## Start with Docker Compose (milestone 4)
 
@@ -27,7 +27,7 @@ $task = Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8080/api/tasks -Con
 Invoke-RestMethod -Uri http://127.0.0.1:8080/api/tasks
 ```
 
-If port 8080 is occupied, set `APP_PORT=8081` in `.env` and use `http://127.0.0.1:8081` in your API commands. The app still listens on port 8080 inside its container. Shell environment variables override `.env` values, so check `$env:APP_PORT` if a port change is not taking effect.
+If port 8080 is occupied, set `APP_PORT=8082` in `.env` and use `http://127.0.0.1:8082` in your API commands. The app still listens on port 8080 inside its container. Shell environment variables override `.env` values, so check `$env:APP_PORT` if a port change is not taking effect.
 
 Compose reads `.env` to substitute values into `compose.yaml`. It passes the resulting database settings into the app container. This differs from running Spring Boot directly, which does not automatically read `.env`. The real `.env` is ignored by Git and excluded from the Docker build context; `.env.example` is the committed template. These settings are for local learning.
 
@@ -84,7 +84,7 @@ For an intentional fresh start, `docker compose down --volumes` deletes this sta
 - Inspect `docker compose ps`, `logs app`, and the SQL query above.
 - Explain why a Docker build skips database tests while CI runs them first.
 
-When ready, say **"I learned milestone 4"**. Next we will introduce a small notification microservice and HTTP communication.
+Milestone 5 adds the notification service described below to this Compose stack.
 
 ## Native setup (without Docker)
 
@@ -252,9 +252,86 @@ Lombok generates getters, the protected JPA constructor, and setters only for ed
 
 Milestone 4 now packages this same application with Docker; see the guide at the top.
 
+## Milestone 5: a separate notification service
+
+There are now two independent Spring Boot applications in this repository:
+
+| Application | Code | Default host port | Data |
+| --- | --- | --- | --- |
+| Task Tracker | Root `pom.xml` and `src/` | 8080 | Tasks in PostgreSQL |
+| Notification service | `notification-service/` with its own POM and Dockerfile | 8081 | Notifications in memory |
+
+The notification service records a message for inspection. It does not send email or contact anyone. It does not read the Task Tracker database or import its Java classes. The shared contract is JSON over HTTP: `{"taskId":42,"title":"Learn microservices"}`.
+
+### Run and inspect the flow
+
+Use the existing `.env` (do not overwrite it). `.env.example` now also documents `NOTIFICATION_PORT=8081`; Compose uses that default even if your existing `.env` lacks the new setting. Keep `APP_PORT` and `NOTIFICATION_PORT` distinct.
+
+```powershell
+docker compose up --build -d
+docker compose logs -f app notifications
+```
+
+Wait for both applications to start, then use a second terminal:
+
+```powershell
+$task = Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8080/api/tasks -ContentType 'application/json' -Body '{"title":"Learn service communication"}'
+Invoke-RestMethod -Method Patch -Uri "http://127.0.0.1:8080/api/tasks/$($task.id)/complete"
+Invoke-RestMethod -Uri http://127.0.0.1:8081/api/notifications
+```
+
+The notification list now includes the completed task's ID, a message, and a receive timestamp. Use your configured host ports if you changed them. `POST /api/notifications` accepts a positive `taskId` and a nonblank title of at most 120 characters; `GET /api/notifications` lists recorded messages.
+
+For native development, start the notification service in its own terminal with `mvn -f notification-service/pom.xml spring-boot:run`. Start Task Tracker using the earlier database setup. Its default notification URL is `http://127.0.0.1:8081`; override `NOTIFICATION_SERVICE_URL` if needed. Run receiver tests separately with `mvn -f notification-service/pom.xml verify` (no database needed).
+
+### Read the code in this order
+
+1. `TaskService`: detects a false-to-true completion transition, through either PATCH or PUT, and publishes a snapshot event.
+2. `TaskCompletedEvent`: an ordinary Java record containing the task ID and title. This is an in-process Spring event, not a Kafka message.
+3. `TaskCompletionListener`: uses `@TransactionalEventListener(AFTER_COMMIT)` so rolled-back tasks do not trigger HTTP calls.
+4. `NotificationClient`: posts JSON to the separate service using Spring's synchronous `RestClient`.
+5. `NotificationConfiguration`: provides the base URL and finite connect/read timeouts (1 second / 2 seconds).
+6. The receiver's controller, request/response DTOs, and service under `notification-service/src/`.
+7. `compose.yaml`: connects the app to `http://notifications:8081` on the internal network. `NOTIFICATION_PORT` changes only the host mapping.
+
+Flow: completion request -> task transaction commits -> local event listener -> HTTP POST -> notification service -> in-memory record.
+
+The listener runs synchronously on the request thread after commit; it is not a background worker. A slow notification request can delay the HTTP response. If an HTTP or connection error occurs, the listener logs a warning and the task remains completed. Repeating completion on an already-complete task does not generate a new event in the ordinary sequential flow. Reopening it with PUT and completing it again represents a new completion and sends another notification.
+
+### Explore failure handling
+
+```powershell
+docker compose stop notifications
+# Create and complete another task using the API commands above.
+# Completion should still succeed, and the task remains completed in PostgreSQL.
+docker compose logs --tail 30 app
+docker compose start notifications
+```
+
+Delivery is **best effort**: no automatic retry, durable queue, deduplication, or recovery of missed notifications. A process crash between commit and send can lose the notification; a timeout can also leave delivery uncertain. Concurrent completion requests can produce duplicates. Notification records disappear when the receiver process restarts, while tasks remain in PostgreSQL. These limitations motivate Kafka and durable delivery in a later milestone.
+
+Compose starts the receiver before the app but does not wait for its application readiness. Check both startup logs before testing. The app tolerates the receiver being unavailable. Task Tracker's health and database ownership remain independent from the receiver.
+
+### Tests and practice
+
+The Task Tracker tests cover the outbound JSON contract, no notification before commit or after rollback, repeated completion, completion through PUT, and successful task persistence during a receiver outage. Receiver tests cover recording/listing notifications and invalid input. CI runs both Maven projects and builds both images.
+
+- Complete a task twice and confirm there is only one notification for that sequential completion.
+- Reopen it and complete through PUT; observe a second notification.
+- Stop the receiver, complete another task, and explain why completion still succeeds.
+- Restart the receiver and explain why failed deliveries are not replayed.
+- Explain why the services share an HTTP contract rather than a database or Java entity.
+- Compare a local Spring event with the HTTP request that crosses the process boundary.
+
+When ready, say **"I learned milestone 5"**. Next we will introduce Kafka and revisit delivery behavior.
+
+## GitHub collaboration workflow
+
+Milestone 5 uses issue #1 and branch `feature/task-completion-notifications`. Changes are proposed through a pull request instead of a direct push to `main`. Read its diff, inspect the CI checks, and discuss anything unclear before merging. A description containing `Closes #1` links the implementation and closes the issue when the PR merges into the default branch. Reviewing your own diff is useful practice; review contributions on your profile come from submitting reviews of others' pull requests.
+
 ## GitHub Actions
 
-`.github/workflows/ci.yml` runs on pushes, pull requests, and manual dispatch. It starts a fresh PostgreSQL 16 service, waits for its health check, sets Java 17, and runs `mvn clean verify`. After tests pass, it builds the Docker image; it does not publish the image or deploy the app. The password in that workflow is only for its temporary test database. No external database credentials are needed.
+`.github/workflows/ci.yml` runs on pushes, pull requests, and manual dispatch. It starts a fresh PostgreSQL 16 service, waits for its health check, sets Java 17, and runs `mvn clean verify`. It also tests `notification-service/pom.xml`. After both test suites pass, it builds both Docker images; it does not publish the image or deploy the app. The password in that workflow is only for its temporary test database. No external database credentials are needed.
 
 Once these changes are pushed, inspect **Actions > Java CI > Build and test**. Future deployment should depend on the test job with `needs: test`. To require passing tests before merging, configure a rule for `main` requiring pull requests and the **Build and test** status check; availability depends on your GitHub plan and repository.
 
@@ -265,8 +342,8 @@ Once these changes are pushed, inspect **Actions > Java CI > Build and test**. F
 | 1 (completed) | Java records, HTTP, JSON, injection, validation, create/list APIs |
 | 2 (completed) | PostgreSQL, JPA entities, repositories, Flyway, database tests |
 | 3 (completed) | Full CRUD, error handling, transaction behavior |
-| 4 (current) | Dockerfile, Compose, networks, volumes |
-| 5 | Notification microservice and HTTP communication |
+| 4 (completed) | Dockerfile, Compose, networks, volumes |
+| 5 (current) | Notification microservice and HTTP communication |
 | 6 | Kafka task events, retries, duplicate handling |
 | 7 | Local Kubernetes deployment, probes, configuration, scaling |
 | 8 | Logs, metrics, security basics; CI is already introduced |
