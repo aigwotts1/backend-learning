@@ -35,6 +35,8 @@ class TaskApiTest {
                 .andExpect(jsonPath("$[0].title").value("Learn Spring Boot"));
     }
 
+
+//tests
     @Test
     void rejectsInvalidTitles() throws Exception {
         for (String body : new String[]{"{}", "{\"title\":\"   \"}",

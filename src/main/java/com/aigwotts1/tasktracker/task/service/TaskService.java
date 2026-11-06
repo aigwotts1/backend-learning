@@ -7,6 +7,8 @@ import com.aigwotts1.tasktracker.task.repository.TaskRepository;
 
 
 import java.util.List;
+import org.springframework.context.ApplicationEventPublisher;
+import com.aigwotts1.tasktracker.notification.TaskCompletedEvent;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -16,8 +18,11 @@ import org.springframework.transaction.annotation.Transactional;
 public class TaskService {
     private final TaskRepository repository;
 
-    public TaskService(TaskRepository repository) {
+    private final ApplicationEventPublisher events;
+
+    public TaskService(TaskRepository repository, ApplicationEventPublisher events) {
         this.repository = repository;
+        this.events = events;
     }
 
     @Transactional
@@ -41,8 +46,10 @@ public class TaskService {
     @Transactional
     public Task update(long id, String title, boolean completed) {
         TaskEntity entity = requireTask(id);
+        boolean wasCompleted = entity.isCompleted();
         entity.setTitle(title.strip());
         entity.setCompleted(completed);
+        publishCompletionIfChanged(entity, wasCompleted);
         // Hibernate writes changes to this managed entity when the transaction commits.
         return toTask(entity);
     }
@@ -50,7 +57,9 @@ public class TaskService {
     @Transactional
     public Task complete(long id) {
         TaskEntity entity = requireTask(id);
+        boolean wasCompleted = entity.isCompleted();
         entity.setCompleted(true);
+        publishCompletionIfChanged(entity, wasCompleted);
         return toTask(entity);
     }
 
@@ -59,6 +68,11 @@ public class TaskService {
         repository.delete(requireTask(id));
     }
 
+    private void publishCompletionIfChanged(TaskEntity entity, boolean wasCompleted) {
+        if (!wasCompleted && entity.isCompleted()) {
+            events.publishEvent(new TaskCompletedEvent(entity.getId(), entity.getTitle()));
+        }
+    }
     private TaskEntity requireTask(long id) {
         return repository.findById(id).orElseThrow(() -> new TaskNotFoundException(id));
     }

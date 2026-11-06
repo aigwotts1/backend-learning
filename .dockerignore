@@ -11,3 +11,5 @@ src/test
 .idea
 .vscode
 *.iml
+
+notification-service

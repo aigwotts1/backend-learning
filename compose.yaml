@@ -34,6 +34,12 @@ services:
 
     # No host port is published for PostgreSQL. The app connects over the internal network.
 
+  # A separate Spring Boot process with its own API and in-memory storage.
+  notifications:
+    build: ./notification-service
+    ports:
+      - "127.0.0.1:${NOTIFICATION_PORT:-8081}:8081"
+    init: true
   # Spring Boot application service.
   app:
     # Build an image using the Dockerfile in the current directory (the build context).
@@ -41,7 +47,7 @@ services:
 
     # Format: host IP : host port : container port.
     # Bind locally; APP_PORT comes from .env or your shell and defaults to 8080.
-    # For APP_PORT=8081, visit http://127.0.0.1:8081; Java still listens on 8080 inside.
+    # For APP_PORT=8082, visit http://127.0.0.1:8082; Java still listens on 8080 inside.
     ports:
       - "127.0.0.1:${APP_PORT:-8080}:8080"
 
@@ -51,6 +57,8 @@ services:
       # "db" is the database service name. localhost here would mean the app container.
       DB_URL: jdbc:postgresql://db:5432/task_tracker
       DB_USERNAME: task_tracker
+      # Reach the separate HTTP service through Compose DNS.
+      NOTIFICATION_SERVICE_URL: http://notifications:8081
       # Use the same password used to initialize PostgreSQL above.
       DB_PASSWORD: ${DOCKER_DB_PASSWORD:?Set DOCKER_DB_PASSWORD in .env or your shell}
 
@@ -59,6 +67,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      notifications:
+        condition: service_started
 
     # Use a small init process to forward signals and reap orphaned child processes.
     init: true

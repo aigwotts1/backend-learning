@@ -12,7 +12,7 @@ jobs:
   test:
     name: Build and test
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     services:
       postgres:
         image: postgres:16
@@ -43,5 +43,11 @@ jobs:
       - name: Build and run tests
         run: mvn --batch-mode --no-transfer-progress clean verify
 
+      - name: Test notification service
+        run: mvn --batch-mode --no-transfer-progress -f notification-service/pom.xml clean verify
+
       - name: Build Docker image
         run: docker build --tag task-tracker:ci .
+
+      - name: Build notification image
+        run: docker build --tag notification-service:ci ./notification-service
