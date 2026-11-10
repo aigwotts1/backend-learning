@@ -1,5 +1,10 @@
 package com.aigwotts1.tasktracker.notification;
 
-// A snapshot of the completed task, not a managed JPA entity.
-public record TaskCompletedEvent(long taskId, String title) {
+import java.util.UUID;
+
+// One stable event ID per completion transition, retained across producer retries.
+public record TaskCompletedEvent(long taskId, String title, UUID eventId) {
+    public TaskCompletedEvent(long taskId, String title) {
+        this(taskId, title, UUID.randomUUID());
+    }
 }

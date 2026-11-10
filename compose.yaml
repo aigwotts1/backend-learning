@@ -34,9 +34,44 @@ services:
 
     # No host port is published for PostgreSQL. The app connects over the internal network.
 
+  # One local KRaft broker/controller. No separate ZooKeeper service is needed.
+  kafka:
+    image: apache/kafka:3.9.1
+    ports:
+      - "127.0.0.1:${KAFKA_PORT:-9092}:9092"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT,HOST:PLAINTEXT
+      KAFKA_LISTENERS: INTERNAL://:19092,CONTROLLER://:29093,HOST://:9092
+      # Clients receive these addresses in Kafka metadata; they must be reachable.
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:19092,HOST://127.0.0.1:${KAFKA_PORT:-9092}
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:29093
+      CLUSTER_ID: 4L6g3nShT-eMCtK--X86sw
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+    volumes:
+      # This image prepares /var/lib/kafka/data for its non-root appuser.
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:19092 --list >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 20s
   # A separate Spring Boot process with its own API and in-memory storage.
   notifications:
     build: ./notification-service
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:19092
+    depends_on:
+      kafka:
+        condition: service_healthy
     ports:
       - "127.0.0.1:${NOTIFICATION_PORT:-8081}:8081"
     init: true
@@ -57,8 +92,7 @@ services:
       # "db" is the database service name. localhost here would mean the app container.
       DB_URL: jdbc:postgresql://db:5432/task_tracker
       DB_USERNAME: task_tracker
-      # Reach the separate HTTP service through Compose DNS.
-      NOTIFICATION_SERVICE_URL: http://notifications:8081
+      KAFKA_BOOTSTRAP_SERVERS: kafka:19092
       # Use the same password used to initialize PostgreSQL above.
       DB_PASSWORD: ${DOCKER_DB_PASSWORD:?Set DOCKER_DB_PASSWORD in .env or your shell}
 
@@ -67,8 +101,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
-      notifications:
-        condition: service_started
+      kafka:
+        condition: service_healthy
 
     # Use a small init process to forward signals and reap orphaned child processes.
     init: true
@@ -77,3 +111,5 @@ services:
 # Compose normally prefixes its actual name with the project name.
 volumes:
   postgres-data:
+
+  kafka-data:

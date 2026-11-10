@@ -19,6 +19,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @ActiveProfiles("test")
 @Transactional
 class TaskApiTest {
+    @org.springframework.test.context.bean.override.mockito.MockitoBean
+    com.aigwotts1.tasktracker.notification.CompletionEventPublisher publisher;
     @Autowired MockMvc mvc;
     @Autowired ObjectMapper objectMapper;
 
