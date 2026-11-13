@@ -68,6 +68,8 @@ public class TaskService {
         repository.delete(requireTask(id));
     }
 
+    //	[TaskService.java](TaskService.java)
+    // Detecting a change from incomplete to complete and publishing a local Spring event.
     private void publishCompletionIfChanged(TaskEntity entity, boolean wasCompleted) {
         if (!wasCompleted && entity.isCompleted()) {
             events.publishEvent(new TaskCompletedEvent(entity.getId(), entity.getTitle()));
