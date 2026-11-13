@@ -1,6 +1,6 @@
 # Task Tracker - backend learning
 
-Current milestone: **5 - Microservices over HTTP**. Task Tracker now calls a separate notification service after a task completion commits. Compose runs both Java services and PostgreSQL.
+Current milestone: **6 - Kafka events**. Task Tracker publishes completion events to Kafka after commit. The notification service consumes them asynchronously. Compose runs both Java services, PostgreSQL, and one local Kafka broker.
 
 ## Start with Docker Compose (milestone 4)
 
@@ -252,7 +252,9 @@ Lombok generates getters, the protected JPA constructor, and setters only for ed
 
 Milestone 4 now packages this same application with Docker; see the guide at the top.
 
-## Milestone 5: a separate notification service
+## Milestone 5: a separate notification service (historical HTTP version)
+
+This section explains the previous version in PR #2. Milestone 6 replaces its HTTP delivery with Kafka; follow the current guide below. POST /api/notifications is removed in the Kafka version; GET remains available.
 
 There are now two independent Spring Boot applications in this repository:
 
@@ -325,9 +327,115 @@ The Task Tracker tests cover the outbound JSON contract, no notification before 
 
 When ready, say **"I learned milestone 5"**. Next we will introduce Kafka and revisit delivery behavior.
 
+## Milestone 6: Kafka producer and consumer
+
+Use the existing `.env`; do not overwrite it. `KAFKA_PORT` defaults to 9092, alongside `APP_PORT=8080` and `NOTIFICATION_PORT=8081`. Keep these host ports distinct.
+
+```powershell
+docker compose up --build -d
+docker compose ps
+docker compose logs -f app notifications kafka
+```
+
+Wait for both Java applications to start and for the receiver log to show partition assignment. Then:
+
+```powershell
+$task = Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8080/api/tasks -ContentType 'application/json' -Body '{"title":"Learn Kafka"}'
+Invoke-RestMethod -Method Patch -Uri "http://127.0.0.1:8080/api/tasks/$($task.id)/complete"
+Start-Sleep -Seconds 2
+Invoke-RestMethod -Uri http://127.0.0.1:8081/api/notifications
+```
+
+Delivery is asynchronous: a successful completion response means the task is committed, not that the receiver has already processed its message. Poll GET if the notification has not arrived yet.
+
+### The message path
+
+Task transaction commits -> local Spring event listener -> Kafka producer -> `task-completed` topic -> notification consumer -> in-memory notification.
+
+The producer sends JSON containing `taskId`, `title`, and a UUID `eventId`. The task ID is the Kafka record key, preserving per-task ordering within its partition. The event ID identifies one completion occurrence and remains the same across producer retries. Reopening and completing a task again generates a new event ID.
+
+| Concept | In this project |
+| --- | --- |
+| Broker | One Apache Kafka 3.9.1 process, running broker/controller roles in KRaft mode |
+| Topic | `task-completed`, a retained log of completion records |
+| Partition | Three ordered logs within that topic; order is per partition, not global |
+| Producer | Task Tracker's `CompletionEventPublisher` |
+| Consumer | Notification service's `CompletionConsumer` with `@KafkaListener` |
+| Consumer group | `notification-service`, which tracks its committed offsets |
+| Offset | A record's position in a partition; the group remembers where it has processed |
+| Dead-letter topic | `task-completed.DLT`, holding rejected or exhausted records for inspection |
+
+The producer requests broker acknowledgements and enables Kafka producer idempotence. This protects against duplicates from producer transport retries, not every application-level duplicate. A send can wait up to 2 seconds for metadata/buffer space; delivery retries are bounded by a 10-second delivery timeout. Async delivery failures are logged.
+
+The consumer disables auto-commit and uses record acknowledgement mode. Successful listener processing makes the record eligible for offset commit. A transient processing failure gets two retries, one second apart; invalid JSON or invalid fields go directly to the DLT. If DLT publication fails, the error handler does not silently treat that record as recovered. There is no automatic DLT replay tool in this milestone.
+
+### Stop the receiver and observe catch-up
+
+```powershell
+docker compose stop notifications
+# Create and complete a NEW task using the API above while Kafka is still running.
+docker compose start notifications
+# Wait for the receiver to start and get its partitions, then inspect GET /api/notifications.
+```
+
+Kafka retains the new event while the receiver is offline, and the group resumes from its offsets when restarted. `auto-offset-reset=earliest` applies only when the group has no valid committed offset; it does not replay all events on every restart.
+
+Notifications and the deduplication map are still **in memory**. Restarting the receiver clears them, while Kafka retains the group's offsets. Previously processed notifications therefore do not automatically reappear. The catch-up exercise demonstrates NEW events published during downtime, not durable notification storage. Duplicate event IDs are suppressed only during the receiver's current process lifetime.
+
+The broker's named `kafka-data` volume retains its log and group offsets across ordinary container recreation. Normal `docker compose down` keeps both data volumes. `down --volumes` deletes BOTH PostgreSQL task data and Kafka state; use it only for an intentional reset. A single broker with replication factor 1 is a local learning setup, not a highly available deployment.
+
+### Inspect topics, offsets, and dead letters
+
+```powershell
+docker compose exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:19092 --describe --topic task-completed
+docker compose exec kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server kafka:19092 --describe --group notification-service
+
+# Deliberately publish malformed JSON to exercise the DLT.
+Write-Output 'not-json' | docker compose exec -T kafka /opt/kafka/bin/kafka-console-producer.sh --bootstrap-server kafka:19092 --topic task-completed
+
+docker compose exec kafka /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server kafka:19092 --topic task-completed.DLT --from-beginning --max-messages 1 --timeout-ms 15000
+```
+
+DLT records preserve the original payload and include failure metadata in headers. Inspect the app logs for failed producer deliveries and receiver logs for processing failures. The DLT consumer command waits for one record and then exits.
+
+To experiment with duplicate IDs, publish the same JSON twice:
+
+```powershell
+$eventId = [guid]::NewGuid().ToString()
+$eventJson = @{taskId=999; title='Duplicate delivery experiment'; eventId=$eventId} | ConvertTo-Json -Compress
+$eventJson | docker compose exec -T kafka /opt/kafka/bin/kafka-console-producer.sh --bootstrap-server kafka:19092 --topic task-completed
+$eventJson | docker compose exec -T kafka /opt/kafka/bin/kafka-console-producer.sh --bootstrap-server kafka:19092 --topic task-completed
+```
+
+These manual messages are independent of database tasks; the receiver does not query Task Tracker. Expect one new notification for that event ID in the running receiver.
+
+### Networking and native development
+
+Containers use `KAFKA_BOOTSTRAP_SERVERS=kafka:19092`. Native Java processes use `127.0.0.1:9092`, or your `KAFKA_PORT` override. Kafka returns advertised addresses in its metadata, so merely publishing a Docker port is not enough: Compose configures separate internal and host listeners. The host listener is for development on this computer; the local broker uses plaintext.
+
+For native applications, start the broker with `docker compose up -d kafka`, use the earlier PostgreSQL setup for tasks, then run each Maven application in its own terminal. Neither application needs `NOTIFICATION_SERVICE_URL` anymore.
+
+### Remaining delivery limits
+
+The PostgreSQL commit and Kafka publication are NOT one atomic operation. If the app crashes between them, or Kafka remains unavailable past the send timeout, a task can be completed without an event. This milestone logs that gap rather than solving it; a transactional outbox is a later reliability improvement. Exactly-once notification delivery is not claimed. Application-level concurrent completions can still create distinct events, and deduplication is not durable across receiver restarts.
+
+### Tests and practice
+
+Task Tracker tests cover the producer JSON/key contract, transaction transitions, rollback, and producer failures. Receiver tests use a real embedded Kafka broker for valid delivery, duplicate suppression, a transient processing retry, and malformed-message routing to the DLT. They run in CI without an external Kafka container. The PostgreSQL Task Tracker tests still require their separate test database.
+
+- Explain why the task ID is the record key but the event ID is the deduplication key.
+- Stop the receiver, complete a new task, restart it, and observe catch-up.
+- Inspect the group's offsets and lag before and after processing.
+- Send malformed JSON and read it from the DLT.
+- Publish an identical event twice and observe one notification.
+- Explain why stopping Kafka can still lose a task event despite the database commit succeeding.
+- Explain what survives receiver restart versus broker container recreation.
+
+When ready, say **"I learned milestone 6"**. Next is a local Kubernetes deployment.
+
 ## GitHub collaboration workflow
 
-Milestone 5 uses issue #1 and branch `feature/task-completion-notifications`. Changes are proposed through a pull request instead of a direct push to `main`. Read its diff, inspect the CI checks, and discuss anything unclear before merging. A description containing `Closes #1` links the implementation and closes the issue when the PR merges into the default branch. Reviewing your own diff is useful practice; review contributions on your profile come from submitting reviews of others' pull requests.
+Milestone 6 uses issue #3 and branch `feature/kafka-task-notifications`, with a draft PR based on the still-open milestone 5 branch. Merge PR #2 first, then retarget the Kafka PR to `main` before merging it. No PR is automatically merged here. Milestone 5 uses issue #1 and branch `feature/task-completion-notifications`. Changes are proposed through a pull request instead of a direct push to `main`. Read its diff, inspect the CI checks, and discuss anything unclear before merging. A description containing `Closes #1` links the implementation and closes the issue when the PR merges into the default branch. Reviewing your own diff is useful practice; review contributions on your profile come from submitting reviews of others' pull requests.
 
 ## GitHub Actions
 
@@ -343,8 +451,8 @@ Once these changes are pushed, inspect **Actions > Java CI > Build and test**. F
 | 2 (completed) | PostgreSQL, JPA entities, repositories, Flyway, database tests |
 | 3 (completed) | Full CRUD, error handling, transaction behavior |
 | 4 (completed) | Dockerfile, Compose, networks, volumes |
-| 5 (current) | Notification microservice and HTTP communication |
-| 6 | Kafka task events, retries, duplicate handling |
+| 5 (completed) | Notification microservice and HTTP communication |
+| 6 (current) | Kafka task events, retries, duplicate handling |
 | 7 | Local Kubernetes deployment, probes, configuration, scaling |
 | 8 | Logs, metrics, security basics; CI is already introduced |
 
