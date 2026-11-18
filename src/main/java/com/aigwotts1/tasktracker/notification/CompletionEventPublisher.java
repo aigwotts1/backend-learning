@@ -8,6 +8,7 @@ import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Component;
 
 @Component
+//kafka producer for task completion events
 public class CompletionEventPublisher {
     public static final String TOPIC = "task-completed";
     private static final Logger log = LoggerFactory.getLogger(CompletionEventPublisher.class);
