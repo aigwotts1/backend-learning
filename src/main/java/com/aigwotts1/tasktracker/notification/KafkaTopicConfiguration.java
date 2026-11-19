@@ -8,6 +8,7 @@ import org.springframework.kafka.config.TopicBuilder;
 
 @Configuration
 @Profile("!test")
+// configuration for Kafka topics used by the application. Topics are created automatically on startup if they do not exist.
 public class KafkaTopicConfiguration {
     @Bean
     NewTopic taskCompletedTopic() {
